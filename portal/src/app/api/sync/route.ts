@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { listUserRepos, fetchClaudeLogs } from "@/lib/github";
 import { getLocalProjects } from "@/lib/claude-local";
 import { parseSessionJsonl } from "@/lib/session-parser";
-import { createLogEntry, detectRepoSlug } from "@/lib/log-generator";
+import { createLogEntry, detectRepoSlug, createFallbackSlug } from "@/lib/log-generator";
 
 /**
  * POST /api/sync
@@ -15,75 +15,108 @@ export async function POST() {
   try {
     // --- 1. Sync from local JSONL transcripts ---
     const localProjects = getLocalProjects();
+
+    // Phase A: Parse all sessions and group by resolved repo slug
+    const repoMap = new Map<
+      string,
+      {
+        owner: string;
+        name: string;
+        sessions: { parsed: ReturnType<typeof parseSessionJsonl>; id: string }[];
+        latestMtime: Date | null;
+      }
+    >();
+
     for (const project of localProjects) {
-      // Decode workspace path: -home-user-ideas -> /home/user/ideas
-      const workspacePath = "/" + project.workspace.replace(/^-/, "").replace(/-/g, "/");
-      const repoSlug = detectRepoSlug(workspacePath);
-
-      if (repoSlug) {
-        const [owner, name] = repoSlug.split("/");
-
-        // Upsert repo
-        await prisma.repo.upsert({
-          where: { id: repoSlug },
-          create: {
-            id: repoSlug,
-            owner,
-            name,
-            totalSessions: project.sessions.length,
-            lastSessionAt: project.sessions[0]?.mtime ?? null,
-          },
-          update: {
-            totalSessions: project.sessions.length,
-            lastSessionAt: project.sessions[0]?.mtime ?? null,
-          },
+      for (const session of project.sessions) {
+        // Skip if already synced (quick check before expensive parse)
+        const existing = await prisma.sessionLog.findFirst({
+          where: { sessionId: session.id },
+          select: { id: true },
         });
-        results.repos++;
+        if (existing) continue;
 
-        // Parse and index each session
-        for (const session of project.sessions) {
-          const logId = `${repoSlug}/${session.id}`;
+        try {
+          const parsed = parseSessionJsonl(session.path);
+          const slug =
+            detectRepoSlug(parsed.cwd ?? "") ??
+            createFallbackSlug(parsed.cwd, project.workspace);
+          const [owner, name] = slug.includes("/")
+            ? slug.split("/", 2)
+            : ["local", slug];
 
-          // Skip if already synced
-          const existing = await prisma.sessionLog.findUnique({
-            where: { id: logId },
-          });
-          if (existing) continue;
-
-          try {
-            const parsed = parseSessionJsonl(session.path);
-            const entry = createLogEntry(parsed, repoSlug);
-
-            await prisma.sessionLog.create({
-              data: {
-                id: logId,
-                sessionId: entry.sessionId,
-                repoOwner: owner,
-                repoName: name,
-                branch: entry.branch,
-                startedAt: entry.startedAt
-                  ? new Date(entry.startedAt)
-                  : new Date(),
-                endedAt: entry.endedAt ? new Date(entry.endedAt) : null,
-                durationSeconds: entry.durationSeconds,
-                summary: entry.summary,
-                filesChanged: entry.filesChanged,
-                commits: entry.commits,
-                inputTokens: entry.tokenUsage.totalInputTokens,
-                outputTokens: entry.tokenUsage.totalOutputTokens,
-                model: entry.model,
-                entrypoint: entry.entrypoint,
-                toolsUsed: entry.toolsUsed,
-                subagents: entry.subagents,
-                userMessages: entry.userMessages,
-                rawLog: JSON.parse(JSON.stringify(entry)),
-              },
+          if (!repoMap.has(slug)) {
+            repoMap.set(slug, {
+              owner,
+              name,
+              sessions: [],
+              latestMtime: session.mtime,
             });
-            results.sessions++;
-          } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : String(e);
-            results.errors.push(`${session.id}: ${msg}`);
           }
+          const entry = repoMap.get(slug)!;
+          entry.sessions.push({ parsed, id: session.id });
+          if (session.mtime && (!entry.latestMtime || session.mtime > entry.latestMtime)) {
+            entry.latestMtime = session.mtime;
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          results.errors.push(`${session.id}: ${msg}`);
+        }
+      }
+    }
+
+    // Phase B: Upsert repos and index sessions
+    for (const [slug, repoData] of repoMap) {
+      await prisma.repo.upsert({
+        where: { id: slug },
+        create: {
+          id: slug,
+          owner: repoData.owner,
+          name: repoData.name,
+          totalSessions: repoData.sessions.length,
+          lastSessionAt: repoData.latestMtime,
+        },
+        update: {
+          totalSessions: { increment: repoData.sessions.length },
+          lastSessionAt: repoData.latestMtime,
+        },
+      });
+      results.repos++;
+
+      for (const { parsed, id: sessionId } of repoData.sessions) {
+        try {
+          const entry = createLogEntry(parsed, slug);
+          const logId = `${slug}/${entry.sessionId || sessionId}`;
+
+          await prisma.sessionLog.create({
+            data: {
+              id: logId,
+              sessionId: entry.sessionId || sessionId,
+              repoOwner: repoData.owner,
+              repoName: repoData.name,
+              branch: entry.branch,
+              startedAt: entry.startedAt
+                ? new Date(entry.startedAt)
+                : new Date(),
+              endedAt: entry.endedAt ? new Date(entry.endedAt) : null,
+              durationSeconds: entry.durationSeconds,
+              summary: entry.summary,
+              filesChanged: entry.filesChanged,
+              commits: entry.commits,
+              inputTokens: entry.tokenUsage.totalInputTokens,
+              outputTokens: entry.tokenUsage.totalOutputTokens,
+              model: entry.model,
+              entrypoint: entry.entrypoint,
+              toolsUsed: entry.toolsUsed,
+              subagents: entry.subagents,
+              userMessages: entry.userMessages,
+              rawLog: JSON.parse(JSON.stringify(entry)),
+            },
+          });
+          results.sessions++;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          results.errors.push(`${sessionId}: ${msg}`);
         }
       }
     }

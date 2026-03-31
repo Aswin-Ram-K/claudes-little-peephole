@@ -46,10 +46,11 @@ interface RepoLogsData {
   sessions: SessionRow[];
 }
 
-export function useDashboard() {
+export function useDashboard(range?: string) {
+  const params = range ? `?range=${range}` : "";
   return useQuery<DashboardData>({
-    queryKey: ["dashboard"],
-    queryFn: () => fetch("/api/sessions").then((r) => r.json()),
+    queryKey: ["dashboard", range],
+    queryFn: () => fetch(`/api/sessions${params}`).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }

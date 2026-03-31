@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { TimeRangeSelector } from "@/components/shared/TimeRangeSelector";
+import type { TimeRange } from "@/types/analytics";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { DashboardSkeleton } from "@/components/shared/LoadingSkeleton";
 import { Badge } from "@/components/shared/Badge";
@@ -78,7 +81,8 @@ function ActivityItem({ session }: { session: SessionRow }) {
 }
 
 export default function DashboardPage() {
-  const { data, isLoading } = useDashboard();
+  const [range, setRange] = useState<TimeRange>("today");
+  const { data, isLoading } = useDashboard(range);
 
   if (isLoading) {
     return (
@@ -105,13 +109,16 @@ export default function DashboardPage() {
   return (
     <PageTransition>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-text-primary">
-            Dashboard
-          </h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Overview of your Claude Code activity
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-text-primary">
+              Dashboard
+            </h1>
+            <p className="text-sm text-text-secondary mt-1">
+              Overview of your Claude Code activity
+            </p>
+          </div>
+          <TimeRangeSelector value={range} onChange={setRange} />
         </div>
 
         {/* Stats Grid */}

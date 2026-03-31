@@ -139,6 +139,19 @@ export function detectRepoSlug(repoDir: string): string | null {
 }
 
 /**
+ * Creates a fallback slug for non-git directories.
+ * Returns "local/<basename>" so sessions are still tracked.
+ */
+export function createFallbackSlug(cwd: string | null, workspace: string): string {
+  if (cwd) {
+    const name = basename(cwd);
+    return `local/${name || "home"}`;
+  }
+  const cleaned = workspace.replace(/^-/, "").replace(/-/g, "_");
+  return `local/${cleaned || "unknown"}`;
+}
+
+/**
  * Resolves the JSONL transcript path for a given session.
  */
 export function resolveJsonlPath(

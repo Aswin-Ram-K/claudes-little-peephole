@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
+  BarChart3,
   Activity,
   Radio,
   GitFork,
@@ -18,6 +19,7 @@ import {
 
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/activity", icon: Activity, label: "Activity" },
   { href: "/live", icon: Radio, label: "Live" },
   { href: "/repos", icon: GitFork, label: "Repos" },

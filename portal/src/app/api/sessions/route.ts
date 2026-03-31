@@ -1,17 +1,41 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/sessions
- * Returns dashboard stats and recent sessions.
- */
-export async function GET() {
+function getStartDate(range: string | null): Date | null {
+  if (!range || range === "all") return null;
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(now);
+  switch (range) {
+    case "today":
+      start.setHours(0, 0, 0, 0);
+      break;
+    case "7d":
+      start.setDate(start.getDate() - 7);
+      break;
+    case "30d":
+      start.setDate(start.getDate() - 30);
+      break;
+    case "90d":
+      start.setDate(start.getDate() - 90);
+      break;
+    default:
+      return null;
+  }
+  return start;
+}
+
+export async function GET(req: NextRequest) {
+  const range = req.nextUrl.searchParams.get("range");
+  const startDate = getStartDate(range);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
   const weekStart = new Date(todayStart);
   weekStart.setDate(weekStart.getDate() - 7);
+
+  const where = startDate ? { startedAt: { gte: startDate } } : {};
 
   const [
     totalSessions,
@@ -22,12 +46,13 @@ export async function GET() {
     todayTokens,
     weekCommits,
   ] = await Promise.all([
-    prisma.sessionLog.count(),
+    prisma.sessionLog.count({ where }),
     prisma.repo.count(),
     prisma.sessionLog.count({
       where: { startedAt: { gte: todayStart } },
     }),
     prisma.sessionLog.findMany({
+      where,
       orderBy: { startedAt: "desc" },
       take: 10,
       select: {
@@ -49,15 +74,19 @@ export async function GET() {
       },
     }),
     prisma.sessionLog.aggregate({
+      where,
       _sum: { inputTokens: true, outputTokens: true },
     }),
     prisma.sessionLog.aggregate({
-      where: { startedAt: { gte: todayStart } },
+      where: startDate
+        ? { startedAt: { gte: startDate } }
+        : { startedAt: { gte: todayStart } },
       _sum: { inputTokens: true, outputTokens: true },
     }),
-    // Count commits this week from all sessions
     prisma.sessionLog.findMany({
-      where: { startedAt: { gte: weekStart } },
+      where: startDate
+        ? { startedAt: { gte: startDate } }
+        : { startedAt: { gte: weekStart } },
       select: { commits: true },
     }),
   ]);
