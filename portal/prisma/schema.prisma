@@ -46,10 +46,14 @@ model Repo {
 }
 
 model ChatMessage {
-  id        Int      @id @default(autoincrement())
-  role      String
-  content   String
-  createdAt DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  conversationId String
+  role           String
+  content        String
+  metadata       Json     @default("{}")
+  cliSessionId   String?
+  createdAt      DateTime @default(now())
 
+  @@index([conversationId, createdAt])
   @@map("chat_messages")
 }

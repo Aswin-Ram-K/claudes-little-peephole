@@ -77,33 +77,27 @@ claude-master-portal/
 - Fonts: Inter (UI), JetBrains Mono (code/numbers)
 - Custom classes: glass-card, gradient-text, gradient-border, shimmer, glow-hover
 
-## Phase 5 — Chat Interface (TODO)
+## Phase 5 — Chat Interface (COMPLETE)
 
-This is the next phase to implement. Requirements:
+Scoped chat interface powered by Claude CLI subprocess.
 
-1. **`portal/src/lib/chat-context.ts`** — Scope definition for the chat. The chat should only operate on Claude Code config/setup/automations. Define what files/paths are in scope (~/.claude/settings.json, hooks, skills, CLAUDE.md files, etc.)
+### Architecture
+- **Read-only CLI + portal-side writes**: CLI spawns with `--allowedTools "Read,Bash(cat:*,ls:*,...)"` — no Edit/Write. For config changes, the system prompt instructs Claude to output structured `config-change` proposals. The portal parses these, shows a diff preview, and applies approved changes via Node.js `fs`.
+- **Dev mode**: Portal runs on host (`npm run dev`) for CLI access. Postgres/Redis in Docker.
+- **Streaming**: CLI → stream-json stdout → SSE API route → fetch ReadableStream on client
+- **Persistence**: ChatMessage model with conversationId, metadata (cost/duration/proposals), stored in PostgreSQL. Conversation ID in localStorage for continuity.
 
-2. **`portal/src/lib/chat-cli.ts`** — Spawn Claude Code CLI as a subprocess. The user has Claude Max 20x (NOT API keys), so chat must go through the CLI. Handle:
-   - Spawning `claude` CLI with appropriate flags (scoped context)
-   - Streaming stdout for real-time response display
-   - Stdin for sending user messages
-   - Process lifecycle management
-
-3. **`POST /api/chat`** — Streaming API route that:
-   - Accepts user messages
-   - Pipes to Claude Code CLI subprocess
-   - Streams responses back via SSE or similar
-   - Persists messages to ChatMessage table in Prisma
-
-4. **Chat UI components** — Update `portal/src/app/chat/page.tsx`:
-   - ChatWindow with message history
-   - ChatBubble (user/assistant with different styling)
-   - ChatInput with send button
-   - Streaming text animation for assistant responses
-   - ApprovalDialog — when Claude wants to write/edit files, show a confirmation dialog (read+write with approvals, matching standard Claude Code behavior)
-   - Scope indicator showing what the chat can access
-
-5. **Chat history** — Persist via ChatMessage model (already in Prisma schema: id, role, content, createdAt)
+### Files
+- `src/lib/chat-context.ts` — Scope definition, CLI args, system prompt, `isPathInScope()` security check
+- `src/lib/chat-cli.ts` — `spawnChatCli()` subprocess manager, `extractConfigChangeProposals()` parser
+- `src/app/api/chat/route.ts` — POST SSE streaming endpoint
+- `src/app/api/chat/apply/route.ts` — POST apply approved config changes (with scope validation)
+- `src/app/api/chat/history/route.ts` — GET conversation history
+- `src/hooks/useChat.ts` — Client-side chat state, SSE consumption, approval flow
+- `src/components/chat/StreamingText.tsx` — Streaming markdown renderer with syntax highlighting
+- `src/components/chat/ConfigDiffPreview.tsx` — Side-by-side before/after diff view
+- `src/components/chat/ApprovalDialog.tsx` — Radix UI approval dialog with diff preview
+- `src/types/chat.ts` — TypeScript types for the chat system
 
 ## Key Design Decisions
 

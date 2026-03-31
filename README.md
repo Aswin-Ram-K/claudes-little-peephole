@@ -69,7 +69,7 @@ See [docs/setup.md](docs/setup.md) for detailed step-by-step instructions coveri
 - [x] **Phase 2**: Session Logging — JSONL parser, log generator, stop hook integration
 - [x] **Phase 3**: Dashboard + Activity — GitHub sync, stats, timeline, repo detail, pagination
 - [x] **Phase 4**: Live Monitoring — PID detection, token gauges, cache stats, real-time 5s polling
-- [ ] **Phase 5**: Chat Interface — Claude Code CLI subprocess, streaming, approval dialogs
+- [x] **Phase 5**: Chat Interface — Claude Code CLI subprocess, streaming, approval dialogs, config diff preview
 - [ ] **Phase 6**: Polish — Animations, responsive, search, settings page
 
 ## Notes
